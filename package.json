@@ -1,6 +1,7 @@
 {
-  "name": "js-telegram-bot",
+  "name": "telegram-web-host-bot",
   "version": "1.0.0",
+  "description": "Telegram Bot to host HTML/CSS/JS files",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
