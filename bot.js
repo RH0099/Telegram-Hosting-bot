@@ -1,11 +1,11 @@
 const TelegramBot = require('node-telegram-bot-api');
 const path = require('path');
 
-// GitHub Secrets থেকে টোকেন নেওয়া হচ্ছে
+// GitHub Secrets থেকে টোকেন গ্রহণ
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
 if (!BOT_TOKEN) {
-    console.error("❌ BOT_TOKEN পাওয়া যায়নি! Secrets চেক করুন।");
+    console.error("❌ BOT_TOKEN পাওয়া যায়নি! GitHub Secrets চেক করুন।");
     process.exit(1);
 }
 
@@ -14,6 +14,7 @@ const activeHosts = new Map();
 
 console.log("🤖 Telegram Bot Engine Running via GitHub Actions!");
 
+// Start Command
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const welcomeText = 
@@ -33,8 +34,83 @@ bot.onText(/\/start/, (msg) => {
     });
 });
 
+// Document/File Listener (.html, .css, .js)
 bot.on('document', async (msg) => {
     const chatId = msg.chat.id;
+    const doc = msg.document;
+    const fileName = doc.file_name;
+    const ext = path.extname(fileName).toLowerCase();
+
+    if (!['.html', '.htm', '.css', '.js'].includes(ext)) {
+        return bot.sendMessage(chatId, "❌ শুধুমাত্র HTML, CSS, বা JS (.html, .css, .js) ফাইল আপলোড করতে পারবেন।");
+    }
+
+    try {
+        const fileUrl = await bot.getFileLink(doc.file_id);
+        const startTime = new Date().toLocaleString();
+
+        activeHosts.set(chatId, {
+            fileName: fileName,
+            fileUrl: fileUrl,
+            startTime: startTime
+        });
+
+        const replyMsg = 
+            `🚀 **File Hosted Successfully!**\n\n` +
+            `📄 **File Name:** \`${fileName}\`\n` +
+            `📌 **Status:** LIVE\n` +
+            `⏱️ **Started At:** \`${startTime}\``;
+
+        bot.sendMessage(chatId, replyMsg, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "📊 Check Status", callback_data: "status_check" }],
+                    [{ text: "🔴 Stop Process", callback_data: "stop_web" }]
+                ]
+            }
+        });
+
+    } catch (err) {
+        bot.sendMessage(chatId, "⚠️ ফাইল রিসিভ করতে সমস্যা হয়েছে।");
+    }
+});
+
+// Status Command
+bot.onText(/\/status/, (msg) => {
+    sendStatus(msg.chat.id);
+});
+
+// Callback Button Actions
+bot.on('callback_query', (query) => {
+    const chatId = query.message.chat.id;
+    const action = query.data;
+
+    if (action === 'stop_web') {
+        if (activeHosts.has(chatId)) {
+            activeHosts.delete(chatId);
+            bot.sendMessage(chatId, "🔴 আপনার হোস্টিং প্রসেসটি বন্ধ করা হয়েছে।");
+        } else {
+            bot.sendMessage(chatId, "❌ কোনো সক্রিয় প্রসেস চালু নেই।");
+        }
+    } else if (action === 'status_check') {
+        sendStatus(chatId);
+    }
+
+    bot.answerCallbackQuery(query.id);
+});
+
+// Helper Function
+function sendStatus(chatId) {
+    if (activeHosts.has(chatId)) {
+        const info = activeHosts.get(chatId);
+        bot.sendMessage(chatId, `🟢 **Status:** Active\n📄 **File:** \`${info.fileName}\`\n⏱️ **Live Since:** \`${info.startTime}\``, {
+            parse_mode: 'Markdown'
+        });
+    } else {
+        bot.sendMessage(chatId, "🔴 **Status:** বর্তমানে কোনো প্রসেস চালু নেই।");
+    }
+}    const chatId = msg.chat.id;
     const doc = msg.document;
     const fileName = doc.file_name;
     const ext = path.extname(fileName).toLowerCase();
