@@ -1,0 +1,27 @@
+name: Run Telegram Bot
+
+on:
+  workflow_dispatch: # ম্যানুয়ালি চালুর জন্য
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # সর্বোচ্চ ৬ ঘণ্টা চলবে
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-encoding: 'utf-8'
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Start Telegram Bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: node bot.js
