@@ -1,5 +1,9 @@
 const TelegramBot = require('node-telegram-bot-api');
 const path = require('path');
+const fs = require('fs');
+const http = require('http');
+const { fork } = require('child_process');
+const localtunnel = require('localtunnel');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
@@ -9,100 +13,105 @@ if (!BOT_TOKEN) {
 }
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-const activeHosts = new Map();
 
-console.log("🤖 Telegram Bot Engine Running via GitHub Actions!");
+// হোস্টিং ফাইল রাখার ফোল্ডার তৈরি
+const HOST_DIR = path.join(__dirname, 'hosted_files');
+if (!fs.existsSync(HOST_DIR)) fs.mkdirSync(HOST_DIR);
+
+let runningBotProcess = null;
+let webServer = null;
+let activeTunnel = null;
+
+console.log("🤖 Telegram Hosting Control Bot is Running...");
 
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const welcomeText = 
-        `🌐 **GitHub Actions Web Hosting Bot**\n\n` +
-        `আমাকে যেকোনো \`.html\`, \`.css\`, বা \`.js\` ফাইল পাঠান, আমি তা রান রাখব।\n\n` +
-        `• স্ট্যাটাস দেখতে: /status\n` +
-        `• প্রসেস বন্ধ করতে স্টপ বাটনে চাপ দিন।`;
+        `🌐 **Advanced Multi-Hosting Bot**\n\n` +
+        `আমাকে ফাইল পাঠান, আমি তা আসল হোস্টিং করে দেব:\n\n` +
+        `1️⃣ **ওয়েবসাইট (.html):** আপলোড করলে আমি আপনাকে একটি লাইভ পাবলিক URL (Link) দেব যা পৃথিবীর যেকোনো ব্রাউজার থেকে খোলা যাবে।\n` +
+        `2️⃣ **অন্য টেলিগ্রাম বট (.js):** আপলোড করলে আমি সেটি ব্যাকগ্রাউন্ডে রান/হোস্ট করে দেব।`;
 
-    bot.sendMessage(chatId, welcomeText, {
-        parse_mode: 'Markdown',
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "📊 Check Active Status", callback_data: "status_check" }],
-                [{ text: "🔴 Stop Hosting Process", callback_data: "stop_web" }]
-            ]
-        }
-    });
+    bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' });
 });
 
-bot.on('document', (msg) => {
+bot.on('document', async (msg) => {
     const chatId = msg.chat.id;
     const doc = msg.document;
     const fileName = doc.file_name;
     const ext = path.extname(fileName).toLowerCase();
 
-    if (!['.html', '.htm', '.css', '.js'].includes(ext)) {
-        bot.sendMessage(chatId, "❌ শুধুমাত্র HTML, CSS, বা JS (.html, .css, .js) ফাইল আপলোড করতে পারবেন।");
-        return;
+    if (!['.html', '.js'].includes(ext)) {
+        return bot.sendMessage(chatId, "❌ শুধুমাত্র `.html` (ওয়েবসাইট) অথবা `.js` (বট কোড) ফাইল আপলোড করতে পারবেন।");
     }
 
-    bot.getFileLink(doc.file_id)
-        .then((fileUrl) => {
-            const startTime = new Date().toLocaleString();
+    bot.sendMessage(chatId, "📥 ফাইল প্রসেস করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...");
 
-            activeHosts.set(chatId, {
-                fileName: fileName,
-                fileUrl: fileUrl,
-                startTime: startTime
+    try {
+        const fileLink = await bot.getFileLink(doc.file_id);
+        const filePath = path.join(HOST_DIR, fileName);
+
+        // ফাইল ডাউনলোড করে লোকাল ফোল্ডারে সেভ করা
+        const response = await fetch(fileLink);
+        const buffer = await response.arrayBuffer();
+        fs.writeFileSync(filePath, Buffer.from(buffer));
+
+        // ১. যদি HTML ওয়েবসাইট হয়
+        if (ext === '.html') {
+            if (webServer) webServer.close();
+            if (activeTunnel) activeTunnel.close();
+
+            // লোকাল এইচটিটিপি সার্ভার তৈরি
+            const PORT = 3000;
+            webServer = http.createServer((req, res) => {
+                fs.readFile(filePath, (err, data) => {
+                    if (err) {
+                        res.writeHead(500);
+                        res.end("Server Error");
+                    } else {
+                        res.writeHead(200, { 'Content-Type': 'text/html' });
+                        res.end(data);
+                    }
+                });
             });
 
-            const replyMsg = 
-                `🚀 **File Hosted Successfully!**\n\n` +
-                `📄 **File Name:** \`${fileName}\`\n` +
-                `📌 **Status:** LIVE\n` +
-                `⏱️ **Started At:** \`${startTime}\``;
+            webServer.listen(PORT, async () => {
+                try {
+                    // LocalTunnel দিয়ে ইন্টারনেট পাবলিক লিংক তৈরি
+                    activeTunnel = await localtunnel({ port: PORT });
+                    
+                    const reply = 
+                        `🚀 **Website Hosted Successfully!**\n\n` +
+                        `📄 **File:** \`${fileName}\`\n` +
+                        `🌐 **Public Live URL:**\n${activeTunnel.url}\n\n` +
+                        `*(এই লিংকটি পৃথিবীর যেকোনো জায়গা থেকে ব্রাউজারে খোলা যাবে)*`;
 
-            bot.sendMessage(chatId, replyMsg, {
-                parse_mode: 'Markdown',
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: "📊 Check Status", callback_data: "status_check" }],
-                        [{ text: "🔴 Stop Process", callback_data: "stop_web" }]
-                    ]
+                    bot.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
+                } catch (tunnelErr) {
+                    bot.sendMessage(chatId, "❌ পাবলিক লিংক তৈরি করতে সমস্যা হয়েছে।");
                 }
             });
-        })
-        .catch((err) => {
-            bot.sendMessage(chatId, "⚠️ ফাইল রিসিভ করতে সমস্যা হয়েছে।");
-        });
-});
+        } 
+        
+        // ২. যদি Node.js / Telegram Bot কোড হয়
+        else if (ext === '.js') {
+            if (runningBotProcess) {
+                runningBotProcess.kill(); // আগের বট বন্ধ করা
+            }
 
-bot.onText(/\/status/, (msg) => {
-    sendStatus(msg.chat.id);
-});
+            // নতুন কোডটি শিশু প্রসেস (Child Process) হিসেবে রান করা
+            runningBotProcess = fork(filePath);
 
-bot.on('callback_query', (query) => {
-    const chatId = query.message.chat.id;
-    const action = query.data;
+            const reply = 
+                `🤖 **Bot Hosted & Running!**\n\n` +
+                `📄 **Script Name:** \`${fileName}\`\n` +
+                `📌 **Status:** LIVE (Running in Background)`;
 
-    if (action === 'stop_web') {
-        if (activeHosts.has(chatId)) {
-            activeHosts.delete(chatId);
-            bot.sendMessage(chatId, "🔴 আপনার হোস্টিং প্রসেসটি বন্ধ করা হয়েছে।");
-        } else {
-            bot.sendMessage(chatId, "❌ কোনো সক্রিয় প্রসেস চালু নেই।");
+            bot.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
         }
-    } else if (action === 'status_check') {
-        sendStatus(chatId);
-    }
 
-    bot.answerCallbackQuery(query.id);
+    } catch (err) {
+        console.error(err);
+        bot.sendMessage(chatId, "⚠️ ফাইল হোস্টিং করতে কোনো ত্রুটি ঘটেছে।");
+    }
 });
-
-function sendStatus(chatId) {
-    if (activeHosts.has(chatId)) {
-        const info = activeHosts.get(chatId);
-        bot.sendMessage(chatId, `🟢 **Status:** Active\n📄 **File:** \`${info.fileName}\`\n⏱️ **Live Since:** \`${info.startTime}\``, {
-            parse_mode: 'Markdown'
-        });
-    } else {
-        bot.sendMessage(chatId, "🔴 **Status:** বর্তমানে কোনো প্রসেস চালু নেই।");
-    }
-       }
