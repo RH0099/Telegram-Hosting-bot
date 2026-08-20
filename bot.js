@@ -1,41 +1,111 @@
-// ==================== CONFIGURATION ====================
-// আপনার টেলিগ্রাম বট টোকেনটি নিচে বসিয়ে দিন
-const BOT_TOKEN = "7983300358:AAEcVH9f1En9I21QCzbhpZ_W41zXOoaR2lw";
-
 const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
 const path = require('path');
 
-// Initialize Telegram Bot with Long Polling
+// GitHub Secrets থেকে টোকেন নেওয়া হচ্ছে
+const BOT_TOKEN = process.env.BOT_TOKEN;
+
+if (!BOT_TOKEN) {
+    console.error("❌ BOT_TOKEN পাওয়া যায়নি! Secrets চেক করুন।");
+    process.exit(1);
+}
+
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+const activeHosts = new Map();
 
-// Active Web Hosting Storage
-const activeWebHosts = new Map();
+console.log("🤖 Telegram Bot Engine Running via GitHub Actions!");
 
-console.log("🤖 JS Web Hosting Bot Engine Started...");
-
-// ==================== START COMMAND ====================
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const welcomeText = 
-        `🌐 **JS Web Hosting & File Manager Bot**\n\n` +
-        `আমি আপনার পাঠানো HTML, CSS, এবং JS ফাইল ব্যাকগ্রাউন্ডে হোস্ট করার জন্য প্রস্তুত।\n\n` +
-        `📌 **কিভাবে ব্যবহার করবেন:**\n` +
-        `1. আপনার \`.html\`, \`.css\`, বা \`.js\` ফাইল আপলোড করুন।\n` +
-        `2. এটি ম্যানুয়ালি বন্ধ করার নির্দেশ না দেওয়া পর্যন্ত ব্যাকগ্রাউন্ডে চলতে থাকবে।\n` +
-        `3. রানিং প্রসেস দেখতে ও নিয়ন্ত্রণ করতে /status কমান্ড ব্যবহার করুন।`;
+        `🌐 **GitHub Actions Web Hosting Bot**\n\n` +
+        `আমাকে যেকোনো \`.html\`, \`.css\`, বা \`.js\` ফাইল পাঠান, আমি তা রান রাখব।\n\n` +
+        `• স্ট্যাটাস দেখতে: /status\n` +
+        `• প্রসেস বন্ধ করতে স্টপ বাটনে চাপ দিন।`;
 
-    const options = {
+    bot.sendMessage(chatId, welcomeText, {
         parse_mode: 'Markdown',
         reply_markup: {
             inline_keyboard: [
                 [{ text: "📊 Check Active Status", callback_data: "status_check" }],
-                [{ text: "🔴 Stop Hosting", callback_data: "stop_web" }]
+                [{ text: "🔴 Stop Hosting Process", callback_data: "stop_web" }]
             ]
         }
-    };
+    });
+});
 
-    bot.sendMessage(chatId, welcomeText, options);
+bot.on('document', async (msg) => {
+    const chatId = msg.chat.id;
+    const doc = msg.document;
+    const fileName = doc.file_name;
+    const ext = path.extname(fileName).toLowerCase();
+
+    if (!['.html', '.htm', '.css', '.js'].includes(ext)) {
+        return bot.sendMessage(chatId, "❌ শুধুমাত্র HTML, CSS, বা JS (.html, .css, .js) ফাইল আপলোড করতে পারবেন।");
+    }
+
+    try {
+        const fileUrl = await bot.getFileLink(doc.file_id);
+        const startTime = new Date().toLocaleString();
+
+        activeHosts.set(chatId, {
+            fileName: fileName,
+            fileUrl: fileUrl,
+            startTime: startTime
+        });
+
+        const replyMsg = 
+            `🚀 **File Hosted Successfully!**\n\n` +
+            `📄 **File Name:** \`${fileName}\`\n` +
+            `📌 **Status:** LIVE\n` +
+            `⏱️ **Started At:** \`${startTime}\``;
+
+        bot.sendMessage(chatId, replyMsg, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "📊 Check Status", callback_data: "status_check" }],
+                    [{ text: "🔴 Stop Process", callback_data: "stop_web" }]
+                ]
+            }
+        });
+
+    } catch (err) {
+        bot.sendMessage(chatId, "⚠️ ফাইল রিসিভ করতে সমস্যা হয়েছে।");
+    }
+});
+
+bot.onText(/\/status/, (msg) => {
+    sendStatus(msg.chat.id);
+});
+
+bot.on('callback_query', (query) => {
+    const chatId = query.message.chat.id;
+    const action = query.data;
+
+    if (action === 'stop_web') {
+        if (activeHosts.has(chatId)) {
+            activeHosts.delete(chatId);
+            bot.sendMessage(chatId, "🔴 আপনার হোস্টিং প্রসেসটি বন্ধ করা হয়েছে।");
+        } else {
+            bot.sendMessage(chatId, "❌ কোনো সক্রিয় প্রসেস চালু নেই।");
+        }
+    } else if (action === 'status_check') {
+        sendStatus(chatId);
+    }
+
+    bot.answerCallbackQuery(query.id);
+});
+
+function sendStatus(chatId) {
+    if (activeHosts.has(chatId)) {
+        const info = activeHosts.get(chatId);
+        bot.sendMessage(chatId, `🟢 **Status:** Active\n📄 **File:** \`${info.fileName}\`\n⏱️ **Live Since:** \`${info.startTime}\``, {
+            parse_mode: 'Markdown'
+        });
+    } else {
+        bot.sendMessage(chatId, "🔴 **Status:** বর্তমানে কোনো প্রসেস চালু নেই।");
+    }
+}    bot.sendMessage(chatId, welcomeText, options);
 });
 
 // ==================== FILE HANDLING LOGIC ====================
