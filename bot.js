@@ -9,18 +9,24 @@ const unzipper = require('unzipper');
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
 if (!BOT_TOKEN) {
-    console.error("❌ BOT_TOKEN পাওয়া যায়নি! GitHub Secrets চেক করুন।");
+    console.error("❌ BOT_TOKEN পাওয়া যায়নি! GitHub Secrets বা Environment Variables চেক করুন।");
     process.exit(1);
 }
 
-// Polling Error হ্যান্ডলার সহ বট ইনিশিয়ালাইজেশন
+// টার্মিনালে টোকেন প্রদর্শনের সিকিউর ট্র্যাকিং ফোল্ড-আউট
+const maskedToken = BOT_TOKEN.substring(0, 8) + '...' + BOT_TOKEN.substring(BOT_TOKEN.length - 4);
+console.log(`===================================================`);
+console.log(`🔑 Active Bot Token in Session: [ ${maskedToken} ]`);
+console.log(`⚙️ Running Instance Location: Terminal / GitHub Actions`);
+console.log(`===================================================`);
+
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 bot.on('polling_error', (error) => {
     if (error.code === 'ETELEGRAM' && error.message.includes('409 Conflict')) {
-        console.error('⚠️ Conflict Error: অন্য কোথাও বট চালু আছে। নিশ্চিত করুন একটিমাত্র ইনস্ট্যান্স চলছে।');
+        console.error(`⚠️ [TOKEN: ${maskedToken}] Conflict Error: অন্য কোথাও এই টোকেন দিয়ে বট চালু আছে!`);
     } else {
-        console.error('Polling error:', error.message);
+        console.error(`[TOKEN: ${maskedToken}] Polling error:`, error.message);
     }
 });
 
@@ -31,34 +37,82 @@ const projects = new Map();
 let nextProjectId = 1;
 let currentPort = 3000;
 
-// Telegram Markdown Safe Escape
 function escapeMarkdown(text) {
     if (!text) return '';
     return String(text).replace(/[_*[\]()~`>#+-=|{}.!]/g, '\\$&');
 }
 
+// হেল্প ও ব্যবহারের পূর্ণাঙ্গ নির্দেশিকা ٹیکسٹ
+function getHelpMessage() {
+    return `📘 *Advanced Multi-Project Hosting Guide*\n\n` +
+           `*কীভাবে ব্যবহার করবেন?*\n` +
+           `১. আপনার ওয়েবসাইটের \`index.html\`, \`style.css\`, \`script.js\` সহ সব ফাইল সিলেক্ট করে একটি **.zip** ফাইল তৈরি করুন।\n` +
+           `২. ZIP ফাইলটি এই বটে সেন্ড করুন। বট সাথে সাথেই লাইভ ইউআরএল (Link) তৈরি করে দেবে।\n` +
+           `৩. একক HTML ফাইল (যা ভিতরে Inline CSS/JS কন্টেইন করে) পাঠালেও কাজ করবে।\n` +
+           `৪. কোনো Telegram Bot-এর \`.js\` ফাইল পাঠালে সেটি ব্যাকগ্রাউন্ডে রান হয়ে যাবে।\n\n` +
+           `📌 *সকল কমান্ডের তালিকা (Commands List):*\n` +
+           `• /start - বট চালু ও স্বাগতম মেসেজ\n` +
+           `• /help - ব্যবহারের গাইডলাইন ও সব কমান্ডের তালিকা\n` +
+           `• /list - বর্তমানে চালু থাকা সব প্রজেক্টের লিস্ট ও লিংক\n` +
+           `• /stop <ID> - নির্দিষ্ট প্রজেক্ট বন্ধ করা (যেমন: \`/stop 1\`)\n` +
+           `• /stop_all - সকল প্রজেক্ট একসাথে বন্ধ ও ক্লিন করা`;
+}
+
 console.log("🤖 Multi-Project Hosting Platform Running...");
 
-// Start Command
+// /start Command
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
-    const welcomeText = 
-        `🌐 *Advanced Multi-Project Hosting Bot*\n\n` +
-        `আমাকে ফাইল পাঠান, আমি আলাদা আলাদা লিংকে হোস্ট করব:\n\n` +
-        `📦 *ZIP ফাইল (.zip):* HTML, CSS, JS প্রজেক্টের জন্য।\n` +
-        `📄 *HTML ফাইল (.html):* Inline CSS/JS সহ বা সাধারণ পেজ।\n` +
-        `📜 *JS ফাইল (.js):* ব্যাকগ্রাউন্ড বট রান করার জন্য।\n\n` +
-        `📌 *কমান্ডসমূহ:*\n` +
-        `• /list - অ্যাক্টিভ প্রজেক্ট ও লিংক\n` +
-        `• /stop <ID> - প্রজেক্ট বন্ধ করা (যেমন: \`/stop 1\`)\n` +
-        `• /stop_all - সব প্রজেক্ট বন্ধ করা`;
+    console.log(`📥 [TOKEN: ${maskedToken}] /start command used by User ID: ${chatId}`);
 
-    bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown' }).catch(console.error);
+    const welcomeText = 
+        `🌐 *Welcome to Multi-Project Hosting Bot!*\n\n` +
+        `আপনার ওয়েব প্রজেক্ট (HTML, CSS, JS) বা বট কোড এখানে আপলোড করে সরাসরি লাইভ হোস্ট করতে পারেন।\n\n` +
+        `কমান্ডের নির্দেশিকা ও কিভাবে ব্যবহার করবেন তা জানতে নিচের **"📜 সকল কমান্ডের তালিকা ও গাইড"** বাটনে ক্লিক করুন অথবা /help লিখুন।`;
+
+    const options = {
+        parse_mode: 'Markdown',
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    { text: '📜 সকল কমান্ডের তালিকা ও গাইড', callback_data: 'show_help' },
+                    { text: '📊 প্রজেক্ট লিস্ট', callback_data: 'show_list' }
+                ]
+            ]
+        }
+    };
+
+    bot.sendMessage(chatId, welcomeText, options).catch(console.error);
 });
 
-// List Command
+// /help Command
+bot.onText(/\/help/, (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`📥 [TOKEN: ${maskedToken}] /help command used by User ID: ${chatId}`);
+    bot.sendMessage(chatId, getHelpMessage(), { parse_mode: 'Markdown' }).catch(console.error);
+});
+
+// Inline Keyboard Button Action
+bot.on('callback_query', (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+
+    if (data === 'show_help') {
+        bot.sendMessage(chatId, getHelpMessage(), { parse_mode: 'Markdown' }).catch(console.error);
+    } else if (data === 'show_list') {
+        sendProjectList(chatId);
+    }
+    bot.answerCallbackQuery(query.id);
+});
+
+// /list Command
 bot.onText(/\/list/, (msg) => {
     const chatId = msg.chat.id;
+    console.log(`📥 [TOKEN: ${maskedToken}] /list command requested`);
+    sendProjectList(chatId);
+});
+
+function sendProjectList(chatId) {
     if (projects.size === 0) {
         return bot.sendMessage(chatId, "🔴 বর্তমানে কোনো অ্যাক্টিভ প্রজেক্ট চালু নেই।");
     }
@@ -76,22 +130,23 @@ bot.onText(/\/list/, (msg) => {
     });
 
     bot.sendMessage(chatId, response, { parse_mode: 'Markdown' }).catch(console.error);
-});
+}
 
-// Stop Specific Project Command
+// /stop Command
 bot.onText(/\/stop(?:_)?(\d+)?/, (msg, match) => {
     const chatId = msg.chat.id;
     const projId = parseInt(match[1]);
 
     if (!projId || !projects.has(projId)) {
-        return bot.sendMessage(chatId, "⚠️ সঠিক প্রজেক্ট ID দিন। উদাহরণ: `/stop 1` বা প্রজেক্ট লিস্ট দেখতে `/list` টাইপ করুন।", { parse_mode: 'Markdown' });
+        return bot.sendMessage(chatId, "⚠️ সঠিক প্রজেক্ট ID দিন। উদাহরণ: `/stop 1` বা তালিকা দেখতে `/list` লিখুন।", { parse_mode: 'Markdown' });
     }
 
     stopProject(projId);
+    console.log(`🗑️ [TOKEN: ${maskedToken}] Project ID ${projId} stopped`);
     bot.sendMessage(chatId, `🗑️ *Project ID ${projId} সফলভাবে বন্ধ করা হয়েছে!*`, { parse_mode: 'Markdown' });
 });
 
-// Stop All Command
+// /stop_all Command
 bot.onText(/\/stop_all/, (msg) => {
     const chatId = msg.chat.id;
     if (projects.size === 0) {
@@ -99,6 +154,7 @@ bot.onText(/\/stop_all/, (msg) => {
     }
 
     projects.forEach((_, id) => stopProject(id));
+    console.log(`🗑️ [TOKEN: ${maskedToken}] All projects stopped`);
     bot.sendMessage(chatId, "🗑️ *সকল প্রজেক্ট সফলভাবে বন্ধ করা হয়েছে!*");
 });
 
@@ -127,6 +183,7 @@ bot.on('document', async (msg) => {
         return bot.sendMessage(chatId, "❌ শুধুমাত্র `.zip`, `.html`, অথবা `.js` ফাইল আপলোড করতে পারবেন।");
     }
 
+    console.log(`📥 [TOKEN: ${maskedToken}] Receiving file: ${fileName}`);
     bot.sendMessage(chatId, "📥 প্রসেস করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...");
 
     try {
@@ -142,7 +199,6 @@ bot.on('document', async (msg) => {
         const buffer = await response.arrayBuffer();
         fs.writeFileSync(downloadedFilePath, Buffer.from(buffer));
 
-        // ১. ZIP ফাইল হোস্টিং
         if (ext === '.zip') {
             const extractPath = path.join(projectDir, 'public');
             fs.createReadStream(downloadedFilePath)
@@ -150,22 +206,14 @@ bot.on('document', async (msg) => {
                 .on('close', async () => {
                     let serveDir = extractPath;
                     const items = fs.readdirSync(extractPath);
-                    
                     if (items.length === 1 && fs.statSync(path.join(extractPath, items[0])).isDirectory()) {
                         serveDir = path.join(extractPath, items[0]);
                     }
-
                     startWebHosting(chatId, id, port, serveDir, fileName, 'ZIP Web Project', projectDir);
                 });
-        }
-
-        // ২. একক HTML ফাইল হোস্টিং
-        else if (ext === '.html') {
+        } else if (ext === '.html') {
             startWebHosting(chatId, id, port, projectDir, fileName, 'Single HTML Page', projectDir, fileName);
-        }
-
-        // ৩. Node.js Bot হোস্টিং
-        else if (ext === '.js') {
+        } else if (ext === '.js') {
             const proc = fork(downloadedFilePath);
             projects.set(id, {
                 name: fileName,
@@ -190,7 +238,6 @@ bot.on('document', async (msg) => {
     }
 });
 
-// ওয়েব সার্ভার এবং টানেল স্টার্ট করা
 function startWebHosting(chatId, id, port, targetDir, fileName, typeName, projectDir, defaultFile = 'index.html') {
     const server = http.createServer((req, res) => {
         let reqUrl = req.url === '/' ? defaultFile : req.url;
@@ -248,4 +295,4 @@ function startWebHosting(chatId, id, port, targetDir, fileName, typeName, projec
             bot.sendMessage(chatId, "❌ লাইভ লিংক তৈরি করতে সমস্যা হয়েছে।");
         }
     });
-        }
+                     }
